@@ -3,6 +3,7 @@ import cv2
 import glob
 import pickle
 
+
 # define internal grid size
 point_size = [6,9]
 

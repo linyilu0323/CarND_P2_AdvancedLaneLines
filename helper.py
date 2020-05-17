@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 
+
 def color_thd(img, threshold, colorspace, ch):
     """convert rgb image to requested colorspace and run thresholding in requested channel"""
     img_colorspace = cv2.cvtColor(img, colorspace)
@@ -26,12 +27,12 @@ def combined_thd(img):
     """run combined thresholding on given rgb image"""
 
     s_binary = color_thd(img, (170, 255), cv2.COLOR_RGB2HLS, 2)
-    l_binary = color_thd(img, (150, 255), cv2.COLOR_RGB2HLS, 1)
+    l_binary = color_thd(img, (120, 200), cv2.COLOR_RGB2HLS, 1)
     sx_binary = sobelx_thd(img, (20, 255))
 
     imgout_binary = np.zeros_like(img[:,:,0])
     imgout_binary[(s_binary==1) & (l_binary==1) | (sx_binary==1)] = 1
-    #imgout_binary[(v_binary==1) | (sx_binary==1)] = 1
+    #imgout_binary[(s_binary==1) | (sx_binary==1)] = 1
     return imgout_binary
 
 def birds_eye(img, src, dst):
@@ -51,7 +52,7 @@ def lane_finder(img):
 
     # HYPERPARAMETERS
     nwindows = 9 # number of sliding windows
-    margin = 80 # width of the windows +/- margin
+    margin = 100 # width of the windows +/- margin
     minpix = 50 # minimum number of pixels found to recenter window
 
     # Set height of windows - based on nwindows above and image shape

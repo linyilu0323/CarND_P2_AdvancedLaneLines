@@ -4,9 +4,9 @@ import cv2
 
 
 # select an image to work with
-image = cv2.imread('test_images/test1.jpg')
+image = cv2.imread('test_images/test6.jpg')
 #image = cv2.imread('test_images/straight_lines2.jpg')
-#image = cv2.imread('test_images/debug_test2.jpg')
+image = cv2.imread('test_images/debug_test1.jpg')
 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 img_comb = process_image(image_rgb)
