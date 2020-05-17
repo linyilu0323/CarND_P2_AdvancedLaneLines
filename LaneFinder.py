@@ -13,7 +13,7 @@ def process_image(image):
     img_undist = cv2.undistort(image, mtx, dist, None, mtx)
 
     # Color and gradient thresholding
-    img_bin = h.cg_thd(img_undist)
+    img_bin = h.combined_thd(img_undist)
 
     # Apply perspective transform to the binary lane image
     ysize = image.shape[0]

@@ -1,32 +1,37 @@
 import numpy as np
 import cv2
 
-def cg_thd(img, s_thd, sx_thd):
+def color_thd(img, threshold, colorspace, ch):
+    """convert rgb image to requested colorspace and run thresholding in requested channel"""
+    img_colorspace = cv2.cvtColor(img, colorspace)
+    img_channel = img_colorspace[:,:,ch]
+    img_bin = np.zeros_like(img_channel)
+    img_bin[(img_channel >= threshold[0]) & (img_channel <= threshold[1])] = 1
+    return img_bin
 
-    """get binary lane image by running sobel thresholding"""
-    s_thd=(170,255)
-    sx_thd=(20, 100)
-
-    # convert to HLS color space and separate the V channel
+def sobelx_thd(img, threshold):
+    """run sobel-x operator on given rgb image and thresholding"""
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    """
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
-    h_channel = hls[:,:,0]
-    l_channel = hls[:,:,1]
-    s_channel = hls[:,:,2]
-
-    # sobel_x on saturation channel
-    sobelx = cv2.Sobel(s_channel, cv2.CV_64F, 1, 0)
+    gray = hls[:,:,2]"""
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)
     abs_sobelx = np.absolute(sobelx)
     scaled_sobel = np.uint8(255*abs_sobelx/np.max(abs_sobelx))
-    # thresholding sobel_x
     sx_binary = np.zeros_like(scaled_sobel)
-    sx_binary[(scaled_sobel >= sx_thd[0]) & (scaled_sobel <= sx_thd[1])] = 1
+    sx_binary[(scaled_sobel >= threshold[0]) & (scaled_sobel <= threshold[1])] = 1
+    return sx_binary
 
-    # thresholding color channel
-    s_binary = np.zeros_like(s_channel)
-    s_binary[(s_channel >= s_thd[0]) & (s_channel <= s_thd[1])] = 1
+def combined_thd(img):
+    """run combined thresholding on given rgb image"""
 
-    imgout_binary = np.zeros_like(s_binary)
-    imgout_binary[(s_binary==1) | (sx_binary==1)] = 1
+    s_binary = color_thd(img, (170, 255), cv2.COLOR_RGB2HLS, 2)
+    l_binary = color_thd(img, (150, 255), cv2.COLOR_RGB2HLS, 1)
+    sx_binary = sobelx_thd(img, (20, 255))
+
+    imgout_binary = np.zeros_like(img[:,:,0])
+    imgout_binary[(s_binary==1) & (l_binary==1) | (sx_binary==1)] = 1
+    #imgout_binary[(v_binary==1) | (sx_binary==1)] = 1
     return imgout_binary
 
 def birds_eye(img, src, dst):
@@ -37,7 +42,7 @@ def birds_eye(img, src, dst):
     return warped
 
 def lane_finder(img):
-    """run sliding window algorithm to fine lane coordinates"""
+    """run sliding window algorithm to fine lane pixel coordinates"""
     # Take a histogram of the bottom half of the image to find starting point
     histogram = np.sum(img[img.shape[0]//2:,:], axis=0)
     midpoint = np.int(histogram.shape[0]//2)
@@ -46,7 +51,7 @@ def lane_finder(img):
 
     # HYPERPARAMETERS
     nwindows = 9 # number of sliding windows
-    margin = 100 # width of the windows +/- margin
+    margin = 80 # width of the windows +/- margin
     minpix = 50 # minimum number of pixels found to recenter window
 
     # Set height of windows - based on nwindows above and image shape
