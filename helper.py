@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-
+import matplotlib.pyplot as plt
 
 def color_thd(img, threshold, colorspace, ch):
     """convert rgb image to requested colorspace and run thresholding in requested channel"""
@@ -41,6 +41,33 @@ def birds_eye(img, src, dst):
     img_size = (img.shape[1], img.shape[0])
     warped = cv2.warpPerspective(img, M, img_size, flags=cv2.INTER_LINEAR)
     return warped
+
+def lane_finder_series(img, prev_leftfit, prev_rightfit):
+    """use curve fit result from previous frame to accelerate finding lane pixels"""
+    if not (prev_leftfit-prev_rightfit).any():
+        leftx, lefty, rightx, righty = lane_finder(img)
+        return leftx, lefty, rightx, righty
+    else:
+        #define the windows +/- margin
+        margin = 80
+        #identify the x and y positions of all nonzero pixels in the image
+        nonzero = img.nonzero()
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+        #get the indices of nonzero pixels in the defined window
+        left_lane_idx = ((nonzerox > (prev_leftfit[0]*(nonzeroy**2) + prev_leftfit[1]*nonzeroy +
+                    prev_leftfit[2] - margin)) & (nonzerox < (prev_leftfit[0]*(nonzeroy**2) +
+                    prev_leftfit[1]*nonzeroy + prev_leftfit[2] + margin)))
+        right_lane_idx = ((nonzerox > (prev_rightfit[0]*(nonzeroy**2) + prev_rightfit[1]*nonzeroy +
+                    prev_rightfit[2] - margin)) & (nonzerox < (prev_rightfit[0]*(nonzeroy**2) +
+                    prev_rightfit[1]*nonzeroy + prev_rightfit[2] + margin)))
+        #extract left and right line pixel positions
+        leftx = nonzerox[left_lane_idx]
+        lefty = nonzeroy[left_lane_idx]
+        rightx = nonzerox[right_lane_idx]
+        righty = nonzeroy[right_lane_idx]
+
+    return leftx, lefty, rightx, righty
 
 def lane_finder(img):
     """run sliding window algorithm to fine lane pixel coordinates"""
@@ -111,26 +138,16 @@ def lane_finder(img):
 
     return leftx, lefty, rightx, righty
 
-def fitpoly2_curvrad_lnct(xl, yl, xr, yr, mx, my, y_eval):
-    """run second order polynomial fit to the lane pixels identified and then calculate curvature and lane center"""
-    p_left = np.polyfit(xl,yl,2)
-    curvrad1_m = get_real_curvrad(p_left, mx, my, y_eval)
-    p_right = np.polyfit(xr,yr,2)
-    curvrad2_m = get_real_curvrad(p_left, mx, my, y_eval)
-    curverad_m = (curvrad1_m + curvrad2_m)/2
-    lane_center = get_lane_center(p_left, p_right, y_eval)
-    return p_left, p_right, curverad_m, lane_center
-
-def get_real_curvrad(p_fit, mx, my, y_eval):
+def get_real_curvrad(fit, mx, my, y_eval):
     """get real world curvature radius (in meters)"""
-    curvrad_m = ((1 + (2*(mx/my**2)*p_fit[0]*y_eval + (mx/my)*p_fit[1])**2)**1.5)\
-    /np.absolute(2*(mx/my**2)*p_fit[0])
+    curvrad_m = ((1 + (2*(my/mx**2)*fit[0]*y_eval + (my/mx)*fit[1])**2)**1.5)\
+    /np.absolute(2*(my/mx**2)*fit[0])
     return curvrad_m
 
-def get_lane_center(p_left, p_right, y_eval):
+def get_lane_center(left_fit, right_fit, y_eval):
     """calculate lane center position"""
-    left_lane_pos_eval = p_left[0] * y_eval**2 + p_left[1] * y_eval + p_left[2]
-    right_lane_pos_eval = p_right[0] * y_eval**2 + p_right[1] * y_eval + p_right[2]
+    left_lane_pos_eval = left_fit[0] * y_eval**2 + left_fit[1] * y_eval + left_fit[2]
+    right_lane_pos_eval = right_fit[0] * y_eval**2 + right_fit[1] * y_eval + right_fit[2]
     lane_center = (left_lane_pos_eval + right_lane_pos_eval) / 2
     return lane_center
 
@@ -168,7 +185,6 @@ def warped_lanepix(img_top, Minv, left_x, left_y, right_x, right_y):
     img_lanepix_warped = cv2.warpPerspective(color_lanepix_img, Minv, (img_top.shape[1], img_top.shape[0]))
     return img_lanepix_warped
 
-
 def overlay_annotate_img(raw_img, lane_poly, lane_pixel, curvrad_m, offset_m):
     """Overlay lane image to original image and annotate curvature radius and offset distance"""
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -190,3 +206,114 @@ def overlay_annotate_img(raw_img, lane_poly, lane_pixel, curvrad_m, offset_m):
     img_comb = cv2.putText(img_comb, crvrad_txt, (50, 50), font, fontScale, fontColor, thickness)
     img_comb = cv2.putText(img_comb, offset_txt, (50, 100), font, fontScale, fontColor, thickness)
     return img_comb
+
+def diagnostic_img(img_out, img_top, left_x, left_y, left_lane_obj, right_x, right_y, right_lane_obj):
+    """plot combined image for diagnostic"""
+
+    str_left_lane = "Left Lane Fit Result: A = " + "{:0.7f}".format(left_lane_obj.current_fit[0]) + \
+    "; B = " + "{:0.5f}".format(left_lane_obj.current_fit[1]) + "; C = "+ "{:5.3f}".format(left_lane_obj.current_fit[2])
+    str_right_lane = "Right Lane Fit Result: A = " + "{:0.7f}".format(right_lane_obj.current_fit[0]) + \
+    "; B = " + "{:0.5f}".format(right_lane_obj.current_fit[1]) + "; C = "+ "{:5.3f}".format(right_lane_obj.current_fit[2])
+    #str_left_sanity = "Left Lane Curvature Deviation to Best Fit = " + "{:4.0f}".format(100*left_lane_obj.diffs) + "m"
+    #str_right_sanity = "Right Lane Curvature Deviation to Best Fit = " + "{:4.0f}".format(100*right_lane_obj.diffs) + "m"
+    #str_left_sanity = "Left Lane Curvature Deviation to Best Fit = " + "{:2.5f}".format(left_lane_obj.diffs[0])
+    #str_right_sanity = "Right Lane Curvature Deviation to Best Fit = " + "{:2.5f}".format(right_lane_obj.diffs[0])
+    str_left_sanity = "Left Lane Detection Failure Count = " + "{:2.0f}".format(left_lane_obj.fail_count)
+    str_right_sanity = "Right Lane Detection Failure Count = " + "{:2.0f}".format(right_lane_obj.fail_count)
+    str_sanity_flag = 'Sanity Check Result: PASSED'
+    if not (left_lane_obj.detected and right_lane_obj.detected):
+        str_sanity_flag = 'Sanity Check Result: FAILED'
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    fontScale = 1
+    fontColor = (255, 255, 255)
+    thickness = 3
+
+    img1 = img_out
+    img2 = cv2.cvtColor(img_top*255, cv2.COLOR_GRAY2RGB)
+    img3 = cv2.cvtColor(np.zeros_like(img_top), cv2.COLOR_GRAY2RGB)
+    img3 = cv2.putText(img3, str_left_lane, (50, 100), font, fontScale, fontColor, thickness)
+    img3 = cv2.putText(img3, str_right_lane, (50, 200), font, fontScale, fontColor, thickness)
+    img3 = cv2.putText(img3, str_left_sanity, (50, 300), font, fontScale, fontColor, thickness)
+    img3 = cv2.putText(img3, str_right_sanity, (50, 400), font, fontScale, fontColor, thickness)
+    img3 = cv2.putText(img3, str_sanity_flag, (50, 500), font, fontScale, fontColor, thickness)
+    img4 = np.dstack((img_top, img_top, img_top))
+    ploty = np.linspace(0, img_top.shape[0]-1, img_top.shape[0])
+    left_fitx = left_lane_obj.current_fit[0]*ploty**2 + left_lane_obj.current_fit[1]*ploty + left_lane_obj.current_fit[2]
+    left_fitx_idx = np.where((left_fitx>0) & (left_fitx<img_top.shape[1]))
+    right_fitx = right_lane_obj.current_fit[0]*ploty**2 + right_lane_obj.current_fit[1]*ploty + right_lane_obj.current_fit[2]
+    right_fitx_idx = np.where((right_fitx>0) & (right_fitx<img_top.shape[1]))
+    img4[left_y, left_x] = [255, 0, 0]
+    img4[right_y, right_x] = [0, 0, 255]
+    img4[ploty[left_fitx_idx].astype(int), left_fitx[left_fitx_idx].astype(int)] = [255, 255, 0]
+    img4[ploty[right_fitx_idx].astype(int), right_fitx[right_fitx_idx].astype(int)] = [255, 255, 0]
+
+    img_comb = concat_tile([[img1, img2], [img3, img4]])
+
+    return img_comb
+
+def concat_tile(im_list_2d):
+    return cv2.vconcat([cv2.hconcat(im_list_h) for im_list_h in im_list_2d])
+
+# Define a class to receive the characteristics of each line detection
+class Lane():
+    def __init__(self):
+        # flag to indicate if there is line detected in this frame
+        self.detected = False
+        # the fit array from the average of past 5 frames
+        self.best_fit = None
+        # array of fit arrays for past few frames
+        self.past_fits = [np.array([False])]
+        # array of fit arrays for all frames
+        self.current_fit = np.array([0, 0, 0])
+        # difference in curvature between last and new fits
+        self.diffs = np.array([0, 0, 0])
+        # img_size
+        self.img_size = np.array([0, 0])
+        # failure count
+        self.fail_count = 0
+
+    def lane_img_size(self, img_size):
+        self.img_size = img_size
+
+    def fit_sanity_check(self, fit):
+        if not fit.any():
+            self.detected = False
+        else:
+            # if best fit exists, use that to do sanity check
+            if self.best_fit is not None:
+                #y_eval = self.img_size[0]
+                #best_fit_curv = ((1 + (2*self.best_fit[0]*y_eval + self.best_fit[1])**2)**1.5)/np.absolute(2*self.best_fit[0])
+                #this_fit_curv = ((1 + (2*fit[0]*y_eval + fit[1])**2)**1.5)/np.absolute(2*fit[0])
+                #self.diffs = max(this_fit_curv, best_fit_curv)/min(this_fit_curv, best_fit_curv)-1
+                self.diffs = abs(fit - self.best_fit)
+
+                if (self.diffs[0]>0.0001 or self.diffs[1]>0.1 or self.diffs[2]>1000):
+                    if self.fail_count < 10:
+                        self.detected = False
+                        self.current_fit = self.best_fit
+                        self.fail_count = self.fail_count + 1
+                    else:
+                        self.detected = True
+                        self.current_fit = fit
+                        self.fail_count = 0
+                        self.best_fit = None
+                        self.past_fits = [np.array([False])]
+                else:
+                    self.detected = True
+                    self.past_fits.append(fit)
+                    self.current_fit = fit
+                    self.fail_count = 0
+                    if len(self.past_fits) > 5:
+                        self.past_fits = self.past_fits[len(self.past_fits)-5:]
+                        self.best_fit = np.average(self.past_fits, axis=0)
+            # if best fit doesn't exist, take the fit result regardless
+            else:
+                #self.diffs = 1
+                self.detected = True
+                self.past_fits.append(fit)
+                self.current_fit = fit
+                self.best_fit = fit
+                if len(self.past_fits) > 5:
+                    self.past_fits = self.past_fits[len(self.past_fits)-5:]
+                    self.best_fit = np.average(self.past_fits, axis=0)
